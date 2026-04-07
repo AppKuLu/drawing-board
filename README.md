@@ -1,6 +1,13 @@
-# Drawing Board
+# Advanced Drawing Board
 
-A simple canvas drawing app with undo/redo, eraser, background image import, localStorage autosave, and PNG/JPG export.
+Features:
+- Pen, eraser, line, rectangle, circle, text
+- Undo / redo
+- Zoom / pan
+- Grid toggle
+- Background image import
+- Autosave to localStorage
+- Export PNG / JPG
 
-## Deploy
-Upload this folder to GitHub and connect it to Cloudflare Pages.
+## Deploy to Cloudflare Pages
+Use this repo as a static site. Build command and output directory can stay blank.
