@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>網上小畫板</title>
+  <style>
+    body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#f3f4f6; color:#111827; padding:16px; }
+    .app { max-width:1100px; margin:0 auto; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    .toolbar > * { height:40px; }
+    button, select, input[type="color"], input[type="file"], input[type="range"] { border:1px solid #d1d5db; background:#fff; border-radius:8px; padding:0 10px; }
+    button { cursor:pointer; }
+    button.active { background:#111827; color:#fff; }
+    .canvas-wrap { border:1px solid #d1d5db; border-radius:12px; overflow:hidden; background:#fff; }
+    canvas { display:block; width:100%; height:70vh; touch-action:none; background:#fff; }
+    .hint { margin-top:10px; font-size:14px; color:#6b7280; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <input type="color" id="color" value="#000000">
+      <input type="range" id="size" min="1" max="40" value="6">
+      <button id="penBtn" class="active">畫筆</button>
+      <button id="eraserBtn">橡皮擦</button>
+      <button id="undoBtn">Undo</button>
+      <button id="redoBtn">Redo</button>
+      <button id="clearBtn">清空</button>
+      <input type="file" id="bgInput" accept="image/*">
+      <button id="savePng">下載 PNG</button>
+      <button id="saveJpg">下載 JPG</button>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="hint">提示：支援滑鼠、手指、觸控筆。背景圖可以匯入，畫完可直接下載。</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const colorInput = document.getElementById('color');
+    const sizeInput = document.getElementById('size');
+    const penBtn = document.getElementById('penBtn');
+    const eraserBtn = document.getElementById('eraserBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const bgInput = document.getElementById('bgInput');
+    const savePng = document.getElementById('savePng');
+    const saveJpg = document.getElementById('saveJpg');
+    const STORAGE_KEY = 'simple-drawing-board-v1';
+    let dpr = window.devicePixelRatio || 1;
+    let drawing = false, mode = 'pen', strokes = [], redoStack = [], backgroundImage = null, currentStroke = null;
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const old = canvas.toDataURL();
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, 0, 0, rect.width, rect.height); redraw(); };
+      img.src = old;
+    }
+    function getPos(e){ const rect=canvas.getBoundingClientRect(); return {x:e.clientX-rect.left,y:e.clientY-rect.top}; }
+    function drawBackground(){ const rect=canvas.getBoundingClientRect(); ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.restore(); if(backgroundImage){ const cw=rect.width,ch=rect.height,iw=backgroundImage.width,ih=backgroundImage.height,scale=Math.min(cw/iw,ch/ih),w=iw*scale,h=ih*scale,x=(cw-w)/2,y=(ch-h)/2; ctx.drawImage(backgroundImage,x,y,w,h); } }
+    function drawStroke(stroke){ if(!stroke.points.length) return; ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=stroke.size; if(stroke.mode==='eraser'){ ctx.globalCompositeOperation='destination-out'; ctx.strokeStyle='rgba(0,0,0,1)'; } else { ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=stroke.color; } ctx.beginPath(); ctx.moveTo(stroke.points[0].x, stroke.points[0].y); for(let i=1;i<stroke.points.length;i++) ctx.lineTo(stroke.points[i].x, stroke.points[i].y); ctx.stroke(); ctx.restore(); }
+    function redraw(){ drawBackground(); strokes.forEach(drawStroke); if(currentStroke) drawStroke(currentStroke); autoSave(); }
+    function pushStroke(stroke){ strokes.push(stroke); redoStack=[]; redraw(); }
+    function autoSave(){ localStorage.setItem(STORAGE_KEY, JSON.stringify({ strokes, mode, color:colorInput.value, size:sizeInput.value, background:backgroundImage ? backgroundImage.src : null })); }
+    function loadSaved(){ const raw=localStorage.getItem(STORAGE_KEY); if(!raw) return; const data=JSON.parse(raw); strokes=data.strokes||[]; mode=data.mode||'pen'; colorInput.value=data.color||'#000000'; sizeInput.value=data.size||6; if(data.background){ const img=new Image(); img.onload=()=>{ backgroundImage=img; redraw(); }; img.src=data.background; } else redraw(); setMode(mode); }
+    function setMode(next){ mode=next; penBtn.classList.toggle('active', mode==='pen'); eraserBtn.classList.toggle('active', mode==='eraser'); }
+    canvas.addEventListener('pointerdown', (e)=>{ drawing=true; canvas.setPointerCapture(e.pointerId); const {x,y}=getPos(e); currentStroke={ mode, color:colorInput.value, size:Number(sizeInput.value), points:[{x,y}] }; });
+    canvas.addEventListener('pointermove', (e)=>{ if(!drawing || !currentStroke) return; const {x,y}=getPos(e); currentStroke.points.push({x,y}); redraw(); });
+    function finishStroke(){ if(!drawing || !currentStroke) return; drawing=false; if(currentStroke.points.length>1) pushStroke(currentStroke); currentStroke=null; }
+    canvas.addEventListener('pointerup', finishStroke); canvas.addEventListener('pointercancel', finishStroke); canvas.addEventListener('pointerleave', finishStroke);
+    penBtn.onclick=()=>setMode('pen'); eraserBtn.onclick=()=>setMode('eraser');
+    undoBtn.onclick=()=>{ if(!strokes.length) return; redoStack.push(strokes.pop()); redraw(); };
+    redoBtn.onclick=()=>{ if(!redoStack.length) return; strokes.push(redoStack.pop()); redraw(); };
+    clearBtn.onclick=()=>{ strokes=[]; redoStack=[]; redraw(); };
+    bgInput.onchange=(e)=>{ const file=e.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ const img=new Image(); img.onload=()=>{ backgroundImage=img; redraw(); }; img.src=reader.result; }; reader.readAsDataURL(file); };
+    function exportImage(type, filename){ const exportCanvas=document.createElement('canvas'); exportCanvas.width=canvas.width; exportCanvas.height=canvas.height; const ectx=exportCanvas.getContext('2d'); ectx.fillStyle='#ffffff'; ectx.fillRect(0,0,exportCanvas.width,exportCanvas.height); if(backgroundImage){ const cw=exportCanvas.width/dpr,ch=exportCanvas.height/dpr,iw=backgroundImage.width,ih=backgroundImage.height,scale=Math.min(cw/iw,ch/ih),w=iw*scale,h=ih*scale,x=(cw-w)/2,y=(ch-h)/2; ectx.drawImage(backgroundImage,x*dpr,y*dpr,w*dpr,h*dpr); } ectx.setTransform(dpr,0,0,dpr,0,0); strokes.forEach((stroke)=>{ ectx.save(); ectx.lineCap='round'; ectx.lineJoin='round'; ectx.lineWidth=stroke.size; if(stroke.mode==='eraser'){ ectx.globalCompositeOperation='destination-out'; ectx.strokeStyle='rgba(0,0,0,1)'; } else { ectx.globalCompositeOperation='source-over'; ectx.strokeStyle=stroke.color; } ectx.beginPath(); ectx.moveTo(stroke.points[0].x, stroke.points[0].y); for(let i=1;i<stroke.points.length;i++) ectx.lineTo(stroke.points[i].x, stroke.points[i].y); ectx.stroke(); ectx.restore(); }); exportCanvas.toBlob((blob)=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }, type, type==='image/jpeg' ? 0.92 : undefined); }
+    savePng.onclick=()=>exportImage('image/png','drawing.png'); saveJpg.onclick=()=>exportImage('image/jpeg','drawing.jpg');
+    window.addEventListener('resize', ()=>{ dpr=window.devicePixelRatio||1; resizeCanvas(); redraw(); });
+    resizeCanvas(); loadSaved();
+  </script>
+</body>
+</html>
